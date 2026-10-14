@@ -215,6 +215,11 @@ impl G2P {
     ) -> Vec<(MToken, std::ops::Range<usize>)> {
         let word_boundary_regex = Regex::new(r"\S+").unwrap();
         let mut tokens = Vec::new();
+        // Like spaCy's `token.whitespace_` in Python misaki: a token is followed by a space only
+        // where the text has one (not between a word and its punctuation).
+        let ws_after = |end: usize| {
+            if text[end..].starts_with(char::is_whitespace) { " " } else { "" }.to_string()
+        };
 
         for mat in word_boundary_regex.find_iter(text) {
             let word = mat.as_str();
@@ -223,14 +228,13 @@ impl G2P {
                 self.subtoken_regex.find_iter(word).collect();
 
             if subtokens.is_empty() {
-                let tk = MToken::new(word.to_string(), "NN".to_string(), " ".to_string());
+                let tk = MToken::new(word.to_string(), "NN".to_string(), ws_after(mat.end()));
                 tokens.push((tk, word_start..mat.end()));
             } else {
                 for sub in subtokens {
                     let s = word_start + sub.start();
                     let e = word_start + sub.end();
-                    let tk =
-                        MToken::new(sub.as_str().to_string(), "NN".to_string(), " ".to_string());
+                    let tk = MToken::new(sub.as_str().to_string(), "NN".to_string(), ws_after(e));
                     tokens.push((tk, s..e));
                 }
             }
@@ -510,6 +514,16 @@ mod tests {
         let (phonemes, _) = g2p.g2p("Hello, world!").unwrap();
         println!("Phonemes: {}", phonemes);
         assert!(!phonemes.contains("❓"));
+    }
+
+    #[test]
+    fn test_no_space_before_punctuation() {
+        // Python misaki keeps the text's own whitespace (spaCy's `whitespace_`):
+        // "Hello, world." -> "həlˈQ, wˈɜːld." (GB), not "həlˈQ , wˈɜːld . ".
+        let g2p = G2P::new(Language::EnglishGB);
+        let (phonemes, _) = g2p.g2p("Hello, world.").unwrap();
+        assert!(!phonemes.contains(" ,") && !phonemes.contains(" ."), "{phonemes:?}");
+        assert!(phonemes.ends_with('.'), "{phonemes:?}");
     }
 
     #[test]
